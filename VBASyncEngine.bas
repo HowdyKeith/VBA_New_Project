@@ -1,7 +1,6 @@
-Attribute VB_Name = "VBASyncEngine"
 '---------------------------------------------------------------------------------------
 ' Module    : VBASyncEngine
-' Version   : 3.5.7
+' Version   : 3.5.9
 ' Purpose   : Unified Orchestrator. Fixed: Single-line Sub syntax errors.
 ' Dependencies: VBASyncGitHub, VBASyncECS, VBASyncImport
 '---------------------------------------------------------------------------------------
@@ -136,17 +135,44 @@ Private Sub ProcessImportQueue(ByVal q As Collection)
     Next i
 End Sub
 
+' =========================================================
+' IMPORT LOGIC (FIXED: Forces Class vs Module Folder)
+' =========================================================
 Private Sub ProcessSingle(ByRef item As Object)
     On Error GoTo fail
-    Dim tmp As String: tmp = Environ$("TEMP") & "\" & item("ComponentName") & ".tmp"
+    Dim compName As String: compName = item("ComponentName")
+    Dim compCode As String: compCode = item("Code")
+    Dim newComp As Object
+    Dim compType As Long
     
-    RemoveExistingSafe item("ComponentName")
-    WriteFile tmp, item("Code")
-    ThisWorkbook.VBProject.VBComponents.Import tmp
-    Kill tmp
+    ' 1. Determine Type based on the original file extension stored in BuildQueue
+    ' We assume .cls = 2 (Class), .bas = 1 (Module)
+    If item.Exists("Extension") Then
+        Select Case LCase(item("Extension"))
+            Case ".cls": compType = 2
+            Case ".frm": compType = 3
+            Case Else: compType = 1
+        End Select
+    Else
+        ' Fallback: If extension isn't in dictionary, default to Module
+        compType = 1
+    End If
+    
+    ' 2. Remove existing to prevent "Name1" conflicts
+    RemoveExistingSafe compName
+    
+    ' 3. Create a fresh component of the CORRECT type
+    Set newComp = ThisWorkbook.VBProject.VBComponents.Add(compType)
+    newComp.Name = compName
+    
+    ' 4. Inject the clean code
+    ' Note: We skip line 1 because 'Add' might insert an 'Option Explicit' automatically
+    newComp.CodeModule.DeleteLines 1, newComp.CodeModule.CountOfLines
+    newComp.CodeModule.AddFromString compCode
+    
     Exit Sub
 fail:
-    Debug.Print "Failed to import: " & item("ComponentName")
+    Debug.Print "Failed to import: " & compName & " - " & Err.Description
 End Sub
 
 ' =========================================================
@@ -185,11 +211,15 @@ End Sub
 
 Private Function BuildQueue(ByVal folderPath As String) As Collection
     Dim q As New Collection, f As String, item As Object
+    Dim ext As String
+    
     f = Dir(folderPath & "*.*")
     Do While f <> ""
         If InStr(f, ".") > 0 Then
+            ext = Mid(f, InStrRev(f, "."))
             Set item = CreateObject("Scripting.Dictionary")
             item("ComponentName") = Left(f, InStrRev(f, ".") - 1)
+            item("Extension") = ext ' <--- ADD THIS LINE
             item("Code") = ReadFile(folderPath & f)
             q.Add item
         End If

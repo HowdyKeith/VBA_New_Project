@@ -1,4 +1,3 @@
-Attribute VB_Name = "VBASyncGitHub"
 '---------------------------------------------------------------------------------------
 ' Module    : VBASyncGitHub
 ' Version   : v1.5.0
